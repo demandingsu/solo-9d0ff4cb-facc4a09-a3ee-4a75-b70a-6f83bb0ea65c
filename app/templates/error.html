@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}出错了{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>{{ status_code }} · 无法完成</h1>
+  <p>{{ message }}</p>
+  <p><a href="/">返回板列表</a></p>
+</section>
+{% endblock %}

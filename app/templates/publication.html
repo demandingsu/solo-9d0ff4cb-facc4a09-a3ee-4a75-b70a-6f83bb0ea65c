@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}第 {{ publication.seq }} 版 · {{ plate.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/plates/{{ plate.id }}">← 返回 {{ plate.name }}</a></p>
+<div class="page-head">
+  <div>
+    <h1>{{ plate.name }} · 第 {{ publication.seq }} 版</h1>
+    <p class="muted">
+      {% if publication.status == "published" %}<span class="badge ok">已发布</span>
+      {% elif publication.status == "stale" %}<span class="badge warn">已过期</span>
+      {% elif publication.status == "superseded" %}<span class="badge muted">已被替换</span>
+      {% else %}<span class="badge fail">失败</span>{% endif %}
+      {% if publication.active %}当前版本{% endif %}
+      计算于 {{ publication.created_at }}
+    </p>
+  </div>
+</div>
+
+{% if publication.status == "stale" %}
+<div class="notice failure">
+  本版已过期，不能作为当前结果使用。原因：{{ publication.stale_reason or "输入已更新" }}。
+  报告仍按本版绑定的输入版本呈现，供追溯。
+</div>
+{% endif %}
+
+<section class="panel">
+  <h2>本版输入来源</h2>
+  <table class="grid">
+    <thead><tr><th>类型</th><th>版本</th><th>原文件名</th><th>SHA-256</th><th>上传时间</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td>孔位图</td>
+        <td>v{{ publication.inputs.map.seq }}</td>
+        <td>{{ publication.inputs.map.original_filename }}</td>
+        <td class="mono">{{ publication.inputs.map.sha256[:16] }}…</td>
+        <td>{{ publication.inputs.map.created_at }}</td>
+        <td><a href="/plates/{{ plate.id }}/versions/map/{{ publication.inputs.map.id }}/file">下载</a></td>
+      </tr>
+      <tr>
+        <td>孔位读数</td>
+        <td>v{{ publication.inputs.reading.seq }}</td>
+        <td>{{ publication.inputs.reading.original_filename }}</td>
+        <td class="mono">{{ publication.inputs.reading.sha256[:16] }}…</td>
+        <td>{{ publication.inputs.reading.created_at }}</td>
+        <td><a href="/plates/{{ plate.id }}/versions/reading/{{ publication.inputs.reading.id }}/file">下载</a></td>
+      </tr>
+    </tbody>
+  </table>
+  {% if not publication.inputs_are_latest %}
+  <p class="muted">注意：已有更新的输入版本，本版绑定的输入并非最新。</p>
+  {% endif %}
+  {% if publication.inputs.map.note or publication.inputs.reading.note %}
+  <p class="muted">备注：{{ publication.inputs.map.note or publication.inputs.reading.note }}</p>
+  {% endif %}
+</section>
+
+{% set q = publication.qc %}
+<section class="panel">
+  <h2>质控</h2>
+  <p>{% if q.passed %}<span class="badge ok">通过</span>{% else %}<span class="badge fail">未通过</span>{% endif %}
+     空白均值：{{ "%.6f"|format(q.blank_mean) if q.blank_mean is not none else "不可用" }}
+     · 阳性对照扣除后均值：{{ "%.6f"|format(q.positive_control.mean) if q.positive_control.mean is not none else "不可用" }}
+     （下限 {{ q.positive_control.floor }}）</p>
+  <ul class="checks">
+    {% for check in q.checks %}
+    <li class="{{ 'ok' if check.ok else 'fail' }}">
+      <span class="mark">{{ "✓" if check.ok else "✗" }}</span>
+      {{ check.label }}{% if check.detail %}<span class="muted"> — {{ check.detail }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if publication.status == "failed" %}
+  <p class="warning-text">该次计算失败，未生成可发布的样本结果。{{ publication.error }}</p>
+  {% endif %}
+</section>
+
+{% if publication.result %}
+<section class="panel">
+  <h2>样本结果（已扣空白）</h2>
+  <table class="grid">
+    <thead><tr><th>样本</th><th>复孔</th><th>原始读数</th><th>扣空白</th><th>样本均值</th></tr></thead>
+    <tbody>
+      {% for sample in publication.result.samples %}
+      <tr>
+        <td>{{ sample.sample_id }}</td>
+        <td class="mono">{% for w in sample.wells %}{{ w.well }}{% if not loop.last %} + {% endif %}{% endfor %}</td>
+        <td class="mono">{% for w in sample.wells %}{{ "%.6f"|format(w.absorbance) }}{% if not loop.last %} / {% endif %}{% endfor %}</td>
+        <td class="mono">{% for w in sample.wells %}{{ "%.6f"|format(w.corrected) }}{% if not loop.last %} / {% endif %}{% endfor %}</td>
+        <td class="mono strong">{{ "%.6f"|format(sample.mean) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <h3>参与孔位</h3>
+  <p>空白孔：{% for w in publication.result.blank.wells %}{{ w.well }}（{{ "%.6f"|format(w.absorbance) }}）{% if not loop.last %}、{% endif %}{% endfor %} → 均值 {{ "%.6f"|format(publication.result.blank.mean) }}</p>
+  <p>阳性对照孔：{% for w in publication.result.positive_control.wells %}{{ w.well }}（{{ "%.6f"|format(w.absorbance) }} → {{ "%.6f"|format(w.corrected) }}）{% if not loop.last %}、{% endif %}{% endfor %} → 均值 {{ "%.6f"|format(publication.result.positive_control.mean) }}</p>
+  {% if publication.result.ignored_readings %}
+  <p class="muted">未纳入计算的读数（孔位图未登记）：{{ publication.result.ignored_readings|join("、") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

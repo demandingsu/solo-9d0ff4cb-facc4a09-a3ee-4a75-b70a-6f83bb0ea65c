@@ -1,0 +1,15 @@
+services:
+  plate:
+    build: .
+    container_name: plate-absorbance
+    ports:
+      - "8000:8000"
+    environment:
+      PLATE_DATA_DIR: /data
+      PLATE_QC_POSITIVE_MIN: "0.5"
+    volumes:
+      - plate-data:/data
+    restart: unless-stopped
+
+volumes:
+  plate-data:

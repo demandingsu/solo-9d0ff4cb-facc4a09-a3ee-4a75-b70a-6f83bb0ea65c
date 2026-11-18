@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}板式吸光度发布系统{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">吸光度发布系统</a>
+    <span class="tagline">签核前核对：空白扣除 · 复孔齐全 · 阳性对照下限</span>
+  </header>
+  <main>
+    {% if message %}<div class="notice success">{{ message }}</div>{% endif %}
+    {% if error %}<div class="notice failure">{{ error }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>版本 {{ version }} · 每一发布版绑定具体孔位图与读数版本</footer>
+</body>
+</html>

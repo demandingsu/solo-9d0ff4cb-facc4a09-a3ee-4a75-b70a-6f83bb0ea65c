@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}{{ snapshot.plate.name }} · 吸光度发布系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="crumbs"><a href="/">← 全部板</a></p>
+    <h1>{{ snapshot.plate.name }}</h1>
+    <p class="muted">创建于 {{ snapshot.plate.created_at }}</p>
+  </div>
+  <form method="post" action="/plates/{{ snapshot.plate.id }}/recompute">
+    <button type="submit" class="secondary">按最新输入重算</button>
+  </form>
+</div>
+
+{% if snapshot.active_publication %}
+  {% set pub = snapshot.active_publication %}
+  <section class="panel status-panel {% if pub.status == 'stale' %}is-stale{% else %}is-published{% endif %}">
+    <h2>当前版本：第 {{ pub.seq }} 版
+      {% if pub.status == "stale" %}<span class="badge warn">已过期</span>{% else %}<span class="badge ok">已发布</span>{% endif %}
+    </h2>
+    {% if pub.status == "stale" %}
+      <p class="warning-text">输入已变更，本版不再代表当前数据；仍可连同原始输入查看。<strong>重算成功前不会启用新版。</strong></p>
+      <p class="muted">{{ pub.stale_reason or "输入已更新" }}</p>
+    {% endif %}
+    <p>
+      绑定输入：孔位图 v{{ pub.inputs.map.seq }}（{{ pub.inputs.map.original_filename }}）
+      ＋ 读数 v{{ pub.inputs.reading.seq }}（{{ pub.inputs.reading.original_filename }}）
+      · 发布/计算于 {{ pub.published_at or pub.created_at }}
+    </p>
+    <p><a href="/plates/{{ snapshot.plate.id }}/publications/{{ pub.id }}">查看本版完整报告与原始输入 →</a></p>
+  </section>
+{% else %}
+  <section class="panel">
+    <h2>尚未发布</h2>
+    <p class="muted">上传孔位图与孔位读数后自动计算；质控全部通过才会发布。</p>
+  </section>
+{% endif %}
+
+<section class="panel">
+  <h2>上传输入（新版本）</h2>
+  <p class="muted">再次上传同类文件会生成新版本；当前已发布版会立即标为过期。孔位图为 CSV/TSV 文本（well+role+sample_id 长表，或行字母×列号网格）；读数为 well+absorbance 长表或数值网格。</p>
+  <form method="post" action="/plates/{{ snapshot.plate.id }}/uploads" enctype="multipart/form-data" class="stack">
+    <label>孔位图文件 <input type="file" name="map_file" accept=".csv,.tsv,.txt,text/csv,text/plain"></label>
+    <label>孔位读数文件 <input type="file" name="readings_file" accept=".csv,.tsv,.txt,text/csv,text/plain"></label>
+    <label>备注（可选） <input type="text" name="note" maxlength="500" placeholder="例如 纠正 A3 样本编号 / 补测空白复孔"></label>
+    <button type="submit">上传并重算</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>版本历史</h2>
+  {% if snapshot.publications %}
+  <table class="grid">
+    <thead><tr><th>发布版</th><th>状态</th><th>孔位图</th><th>读数</th><th>触发</th><th>时间</th><th></th></tr></thead>
+    <tbody>
+    {% for pub in snapshot.publications %}
+      <tr class="{% if pub.status == 'failed' %}row-failed{% endif %}">
+        <td>第 {{ pub.seq }} 版</td>
+        <td>
+          {% if pub.status == "published" %}<span class="badge ok">已发布</span>
+          {% elif pub.status == "stale" %}<span class="badge warn">已过期</span>
+          {% elif pub.status == "superseded" %}<span class="badge muted">已被替换</span>
+          {% else %}<span class="badge fail">失败</span>{% endif %}
+        </td>
+        <td>v{{ pub.inputs.map.seq if pub.inputs.map else "?" }}</td>
+        <td>v{{ pub.inputs.reading.seq if pub.inputs.reading else "?" }}</td>
+        <td>{{ "上传" if pub.trigger == "upload" else "重算" }}</td>
+        <td>{{ pub.created_at }}</td>
+        <td><a href="/plates/{{ snapshot.plate.id }}/publications/{{ pub.id }}">查看</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">暂无发布记录。</p>
+  {% endif %}
+</section>
+
+<section class="panel two-col">
+  <div>
+    <h2>孔位图版本</h2>
+    {% if snapshot.map_versions %}
+    <ul class="version-list">
+      {% for v in snapshot.map_versions %}
+      <li>
+        <strong>v{{ v.seq }}</strong> · {{ v.original_filename }} · {{ v.byte_size }} B · {{ v.created_at }}
+        {% if snapshot.latest_map_version and v.id == snapshot.latest_map_version.id %}<span class="badge info">最新</span>{% endif %}
+        {% if v.note %}<div class="muted">{{ v.note }}</div>{% endif %}
+        <a href="/plates/{{ snapshot.plate.id }}/versions/map/{{ v.id }}/file">下载原文件</a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">尚未上传。</p>{% endif %}
+  </div>
+  <div>
+    <h2>读数版本</h2>
+    {% if snapshot.reading_versions %}
+    <ul class="version-list">
+      {% for v in snapshot.reading_versions %}
+      <li>
+        <strong>v{{ v.seq }}</strong> · {{ v.original_filename }} · {{ v.byte_size }} B · {{ v.created_at }}
+        {% if snapshot.latest_reading_version and v.id == snapshot.latest_reading_version.id %}<span class="badge info">最新</span>{% endif %}
+        {% if v.note %}<div class="muted">{{ v.note }}</div>{% endif %}
+        {% for w in v.warnings %}<div class="muted">⚠ {{ w }}</div>{% endfor %}
+        <a href="/plates/{{ snapshot.plate.id }}/versions/reading/{{ v.id }}/file">下载原文件</a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">尚未上传。</p>{% endif %}
+  </div>
+</section>
+{% endblock %}
