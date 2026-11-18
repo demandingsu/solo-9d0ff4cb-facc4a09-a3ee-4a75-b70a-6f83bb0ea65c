@@ -82,6 +82,76 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_publications_one_active
 CREATE INDEX IF NOT EXISTS ix_publications_plate_seq
     ON publications(plate_id, seq DESC);
 
+-- ---------------------------------------------------------------------------
+-- Loading-chain verification (pipetting provenance)
+
+CREATE TABLE IF NOT EXISTS transfer_log_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_plate_id INTEGER NOT NULL REFERENCES plates(id),
+    target_plate_id INTEGER NOT NULL REFERENCES plates(id),
+    seq INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    note TEXT,
+    original_filename TEXT,
+    stored_name TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    operations_json TEXT NOT NULL,
+    warnings_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (source_plate_id, target_plate_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS chain_verifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_plate_id INTEGER NOT NULL REFERENCES plates(id),
+    target_plate_id INTEGER NOT NULL REFERENCES plates(id),
+    seq INTEGER NOT NULL,
+    transfer_log_version_id INTEGER NOT NULL REFERENCES transfer_log_versions(id),
+    source_map_version_id INTEGER NOT NULL REFERENCES plate_map_versions(id),
+    target_map_version_id INTEGER NOT NULL REFERENCES plate_map_versions(id),
+    status TEXT NOT NULL CHECK (
+        status IN ('completed', 'stale', 'superseded', 'failed')
+    ),
+    is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+    trigger TEXT NOT NULL,
+    result_json TEXT,
+    summary_json TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    stale_at TEXT,
+    stale_reason TEXT,
+    superseded_by INTEGER,
+    UNIQUE (source_plate_id, target_plate_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS chain_verification_plates (
+    verification_id INTEGER NOT NULL REFERENCES chain_verifications(id),
+    plate_id INTEGER NOT NULL REFERENCES plates(id),
+    map_version_id INTEGER NOT NULL REFERENCES plate_map_versions(id),
+    role TEXT NOT NULL CHECK (role IN ('source', 'target', 'intermediate')),
+    PRIMARY KEY (verification_id, plate_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_chain_verifications_one_active
+    ON chain_verifications(source_plate_id, target_plate_id) WHERE is_active = 1;
+
+CREATE INDEX IF NOT EXISTS ix_chain_verifications_target_seq
+    ON chain_verifications(target_plate_id, seq DESC);
+
+CREATE INDEX IF NOT EXISTS ix_chain_verification_plates_plate
+    ON chain_verification_plates(plate_id);
+
+CREATE TRIGGER IF NOT EXISTS trg_transfer_log_versions_immutable_update
+BEFORE UPDATE ON transfer_log_versions
+BEGIN SELECT RAISE(ABORT, 'transfer log versions are immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_transfer_log_versions_immutable_delete
+BEFORE DELETE ON transfer_log_versions
+BEGIN SELECT RAISE(ABORT, 'transfer log versions are immutable'); END;
+
 CREATE TRIGGER IF NOT EXISTS trg_plate_map_versions_immutable_update
 BEFORE UPDATE ON plate_map_versions
 BEGIN SELECT RAISE(ABORT, 'input versions are immutable'); END;
@@ -122,7 +192,7 @@ def init_db() -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.executescript(SCHEMA)
-        conn.execute("PRAGMA user_version = 1")
+        conn.execute("PRAGMA user_version = 2")
     finally:
         conn.close()
 
@@ -149,5 +219,19 @@ def next_seq(conn: sqlite3.Connection, table: str, plate_id: int) -> int:
     row = conn.execute(
         f"SELECT COALESCE(MAX(seq), 0) AS max_seq FROM {table} WHERE plate_id = ?",
         (plate_id,),
+    ).fetchone()
+    return int(row["max_seq"]) + 1
+
+
+def next_pair_seq(
+    conn: sqlite3.Connection, table: str, source_plate_id: int, target_plate_id: int
+) -> int:
+    """Allocate the next sequence for a source/target chain inside a transaction."""
+    if table not in {"transfer_log_versions", "chain_verifications"}:
+        raise ValueError("unsupported table")
+    row = conn.execute(
+        f"SELECT COALESCE(MAX(seq), 0) AS max_seq FROM {table} "
+        "WHERE source_plate_id = ? AND target_plate_id = ?",
+        (source_plate_id, target_plate_id),
     ).fetchone()
     return int(row["max_seq"]) + 1

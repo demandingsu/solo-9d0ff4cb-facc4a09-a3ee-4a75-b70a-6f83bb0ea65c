@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_chain_macros.html" import status_badge, summary_line %}
+{% block title %}上样链核对 · 吸光度发布系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="crumbs"><a href="/">← 返回板列表</a></p>
+    <h1>上样链核对</h1>
+    <p class="muted">
+      选定源板孔位图与待核板孔位图，上传移液机器人的转移日志（操作序号、源板孔、目标板孔），
+      按操作先后还原待核板每个样本孔的原始样本编号，并对照登记编号给出路径、错位、缺失与混样。
+      允许样本先经过中间板；中间板的孔位图也必须已上传。
+    </p>
+  </div>
+  <a class="button-link" href="/chains/new">新建核对</a>
+</div>
+
+<section class="panel">
+  <h2>最新核对（每对源板/待核板）</h2>
+  {% if verifications %}
+  <table class="grid">
+    <thead>
+      <tr><th>待核板</th><th>源板</th><th>状态</th><th>结论</th><th>输入</th><th>时间</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for v in verifications %}
+      <tr class="{% if v.status == 'failed' %}row-failed{% endif %}">
+        <td><a href="/plates/{{ v.target_plate.id }}">{{ v.target_plate.name }}</a></td>
+        <td><a href="/plates/{{ v.source_plate.id }}">{{ v.source_plate.name }}</a></td>
+        <td>{{ status_badge(v) }}{% if not v.active %}<div class="muted">本对板当前无有效结果</div>{% endif %}
+          {% if v.latest_attempt and v.latest_attempt.id != v.id and v.latest_attempt.status == "failed" %}
+          <div class="muted">最近一次尝试 <a href="/chains/{{ v.latest_attempt.id }}">失败</a>：{{ v.latest_attempt.error }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {{ summary_line(v) }}
+          {% if v.status == "failed" %}<div class="muted">{{ v.error }}</div>{% endif %}
+        </td>
+        <td class="muted">
+          日志 v{{ v.log.seq if v.log else "?" }} · 参与板 {{ v.plates|length }}
+          {% if not v.inputs_are_latest %}<div class="warning-text">输入已变更，结果过期</div>{% endif %}
+        </td>
+        <td class="muted">{{ v.created_at }}</td>
+        <td><a href="/chains/{{ v.id }}">查看</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">还没有核对记录。<a href="/chains/new">新建一次核对</a>。</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>新建核对</h2>
+  <p class="muted">需要源板、待核板以及日志中出现的任何中间板都已上传孔位图（不必上传读数）。
+    也可从 <a href="/chains/new">独立页面</a> 上传。</p>
+  <form method="post" action="/chains/new" enctype="multipart/form-data" class="stack">
+    <label>源板（登记样本编号的板）
+      <select name="source_plate_id" required>
+        <option value="">请选择</option>
+        {% for plate in plates_with_map %}
+        <option value="{{ plate.id }}" {% if form_source == plate.id %}selected{% endif %}>{{ plate.name }}（孔位图 {{ plate.map_version_count }} 版）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>待核板（要还原来源的板）
+      <select name="target_plate_id" required>
+        <option value="">请选择</option>
+        {% for plate in plates_with_map %}
+        <option value="{{ plate.id }}" {% if form_target == plate.id %}selected{% endif %}>{{ plate.name }}（孔位图 {{ plate.map_version_count }} 版）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>转移日志 CSV/TSV
+      <input type="file" name="log_file" required accept=".csv,.tsv,.txt,text/csv,text/plain">
+    </label>
+    <label>备注（可选）
+      <input type="text" name="note" maxlength="500" placeholder="例如 2026-11-18 机器人运行 3">
+    </label>
+    <button type="submit">上传并核对</button>
+  </form>
+  <p class="muted">表头需包含 operation、source_plate、source_well、target_plate、target_well（也接受中文：操作序号、源板、源板孔位、目标板、目标板孔位）。</p>
+</section>
+
+<section class="panel">
+  <h2>全部板</h2>
+  <p class="muted">{% for plate in plates %}<a href="/plates/{{ plate.id }}">{{ plate.name }}</a>{% if not loop.last %}、{% endif %}{% endfor %}</p>
+</section>
+{% endblock %}

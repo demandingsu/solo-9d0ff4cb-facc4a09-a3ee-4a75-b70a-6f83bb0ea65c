@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% from "_chain_macros.html" import status_badge, summary_line %}
+{% block title %}核对 #{{ verification.id }} · {{ verification.target_plate.name }}{% endblock %}
+{% block content %}
+{% set v = verification %}
+{% set r = v.result %}
+<p class="crumbs"><a href="/chains">← 上样链核对</a> · <a href="/plates/{{ v.target_plate.id }}">{{ v.target_plate.name }}</a></p>
+<div class="page-head">
+  <div>
+    <h1>{{ v.source_plate.name }} → {{ v.target_plate.name }}</h1>
+    <p class="muted">
+      {{ status_badge(v) }}
+      {% if v.active %}当前结果{% endif %}
+      核对 #{{ v.id }}（该对板第 {{ v.seq }} 次）
+      · {{ "上传后自动计算" if v.trigger == "upload" else "手动重算" }}
+      · {{ v.completed_at or v.created_at }}
+    </p>
+  </div>
+  {% if v.status != "superseded" %}
+  <form method="post" action="/chains/{{ v.id }}/recompute">
+    <button type="submit" class="secondary">按最新输入重算</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if v.status == "stale" %}
+<div class="notice failure">
+  本结果已过期，不能作为当前结论。原因：{{ v.stale_reason or "输入已更新" }}。
+  {% if v.result %}以下内容仍按它当时绑定的输入版本呈现，供追溯；重算成功前不会启用新结论。{% endif %}
+</div>
+{% elif v.status == "failed" %}
+<div class="notice failure">
+  这次核对没有产出可信结论，未发布结果。{{ v.error }}
+</div>
+{% endif %}
+{% if v.active_verification %}
+<div class="notice failure">
+  本记录不是当前有效结果。当前有效的是
+  <a href="/chains/{{ v.active_verification.id }}">第 {{ v.active_verification.seq }} 次核对</a>
+  {% if v.active_verification.status == "stale" %}（已过期，仅供参考）{% endif %}。
+</div>
+{% endif %}
+{% if not v.inputs_are_latest and v.status != "stale" %}
+<div class="notice failure">已有更新的输入版本，本结果对应的输入不是最新。</div>
+{% endif %}
+
+<section class="panel">
+  <h2>绑定的输入版本</h2>
+  <table class="grid">
+    <thead><tr><th>角色</th><th>板</th><th>孔位图</th><th>说明</th></tr></thead>
+    <tbody>
+      {% for p in v.plates %}
+      <tr>
+        <td>{{ {"source": "源板", "target": "待核板", "intermediate": "中间板"}[p.role] }}</td>
+        <td><a href="/plates/{{ p.plate_id }}">{{ p.name }}</a></td>
+        <td>v{{ p.map_version_seq }}</td>
+        <td class="muted">{{ p.map_filename }}{% if p.role == "intermediate" %}（孔位图定义该板的孔位是否存在及角色）{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td>转移日志</td>
+        <td>—</td>
+        <td>v{{ v.log.seq if v.log else "?" }}</td>
+        <td class="muted">{{ v.log.original_filename }} · SHA-256 <span class="mono">{{ v.log.sha256[:16] }}…</span>
+          {% if v.log %}<a href="/chains/{{ v.id }}/log">下载原文件</a>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% if v.outdated_plates or v.log_outdated %}
+  <p class="warning-text">
+    已过时的输入：
+    {% for item in v.outdated_plates %}{{ item.name }} 孔位图（本版用 v{{ item.pinned_seq }}）{% if not loop.last %}、{% endif %}{% endfor %}
+    {% if v.log_outdated %}{% if v.outdated_plates %}、{% endif %}转移日志有更新版本{% endif %}
+  </p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>核对结论</h2>
+  {% if v.conclusions_trustworthy %}
+    <p class="strong">{{ summary_line(v) }}</p>
+  {% else %}
+    <p class="warning-text">本次输入存在结构性问题，下列统计仅供定位问题，不能作为样本归属结论。</p>
+    <p class="muted">{{ summary_line(v) }}</p>
+  {% endif %}
+  <ul class="checks">
+    {% for check in v.checks %}
+    <li class="{{ 'ok' if check.ok else 'fail' }}">
+      <span class="mark">{{ "✓" if check.ok else "✗" }}</span>
+      {{ check.label }}{% if check.detail %}<span class="muted"> — {{ check.detail }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% if v.invalid_operations %}
+<section class="panel">
+  <h2>无效操作</h2>
+  <table class="grid">
+    <thead><tr><th>操作</th><th>转移</th><th>原因</th></tr></thead>
+    <tbody>
+      {% for item in v.invalid_operations %}
+      <tr class="row-failed">
+        <td>{{ item.operation if item.operation is not none else "—" }}{% if item.line %}<div class="muted">第 {{ item.line }} 行</div>{% endif %}</td>
+        <td class="mono">{{ item.source_plate }} {{ item.source_well or "?" }} → {{ item.target_plate }} {{ item.target_well or "?" }}</td>
+        <td>{{ item.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if r %}
+<section class="panel">
+  <h2>待核板样本孔还原</h2>
+  <p class="muted">状态说明：一致 = 追溯编号与登记相同；错位 = 追溯为别的样本；缺失 = 没有来源；混样 = 混入了不同样本。
+    非样本孔或未登记孔只有在收到样本时才列出。</p>
+  <table class="grid">
+    <thead><tr><th>孔位</th><th>状态</th><th>登记编号</th><th>追溯编号</th><th>来源路径</th><th>相关操作</th></tr></thead>
+    <tbody>
+      {% for row in r.target_wells if row.role == "sample" or row.operations %}
+      <tr class="{% if row.status in ['mismatch', 'missing', 'mixed', 'unregistered', 'non_sample'] %}row-failed{% endif %}">
+        <td class="mono strong">{{ row.well }}</td>
+        <td>
+          {% if row.status == "match" %}<span class="badge ok">一致</span>
+          {% elif row.status == "mismatch" %}<span class="badge fail">错位</span>
+          {% elif row.status == "missing" %}<span class="badge fail">缺失</span>
+          {% elif row.status == "mixed" %}<span class="badge warn">混样</span>
+          {% elif row.status == "non_sample" %}<span class="badge warn">非样本孔</span>
+          {% else %}<span class="badge fail">未登记</span>{% endif %}
+        </td>
+        <td>{{ row.registered_sample_id or "—" }}</td>
+        <td>
+          {% if row.derived_sample_id %}{{ row.derived_sample_id }}
+          {% elif row.sample_ids %}{{ row.sample_ids|join(" + ") }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% for path in row.paths %}
+          <div class="mono path">{{ path|join(" → ") }}</div>
+          {% else %}<span class="muted">无</span>{% endfor %}
+          {% if row.merged_chains and not row.mixed %}<div class="muted">同一编号的多次转移汇入此孔</div>{% endif %}
+        </td>
+        <td class="mono">{{ row.operations|join("、") if row.operations else "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">待核板没有可展示的样本孔。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if r.chains %}
+<section class="panel">
+  <h2>来源链</h2>
+  <p class="muted">每条链代表一个原始样本的液体；同一链可分流到多个孔，混入的链会继承到下游。</p>
+  <table class="grid">
+    <thead><tr><th>来源</th><th>样本</th><th>经过</th><th>到达</th></tr></thead>
+    <tbody>
+      {% for chain in r.chains %}
+      <tr>
+        <td class="mono">{{ chain.origin_plate }} {{ chain.origin_well }}</td>
+        <td>{{ chain.sample_id }}</td>
+        <td>
+          {% for hop in chain.hops %}
+          <div class="mono">#{{ hop.operation }} {{ hop.from_plate }} {{ hop.from_well }} → {{ hop.to_plate }} {{ hop.to_well }}</div>
+          {% else %}<span class="muted">未转出</span>{% endfor %}
+        </td>
+        <td class="mono">{% for dest in chain.destinations %}{{ dest.plate }} {{ dest.well }}{% if not loop.last %}、{% endif %}{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>按操作顺序的转移</h2>
+  <table class="grid">
+    <thead><tr><th>操作</th><th>转移</th><th>携带样本</th></tr></thead>
+    <tbody>
+      {% for event in r.events %}
+      <tr>
+        <td class="mono">#{{ event.operation }}</td>
+        <td class="mono">{{ event.from_plate }} {{ event.from_well }} → {{ event.to_plate }} {{ event.to_well }}</td>
+        <td>{{ event.sample_ids|join("、") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -108,3 +108,78 @@ def test_input_versions_are_immutable_at_sql_level(client, app_env):
             conn.execute("DELETE FROM plate_map_versions WHERE plate_id = ?", (plate_id,))
     finally:
         conn.close()
+
+
+def _chain_pair(client):
+    from tests.test_chain import MULTI_HOP_OK, seed_plates, verify
+
+    source, _, target = seed_plates(client)
+    result = verify(client, source, target, MULTI_HOP_OK).json()["result"]
+    return source, target, result["verification_id"]
+
+
+def test_schema_blocks_second_active_verification(client, app_env):
+    _, _, verification_id = _chain_pair(client)
+    conn = _raw(app_env / "data" / "plate.sqlite3")
+    try:
+        source_plate_id, target_plate_id = conn.execute(
+            "SELECT source_plate_id, target_plate_id FROM chain_verifications WHERE id = ?",
+            (verification_id,),
+        ).fetchone()
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO chain_verifications
+                    (source_plate_id, target_plate_id, seq, transfer_log_version_id,
+                     source_map_version_id, target_map_version_id, status, is_active,
+                     trigger, summary_json, created_at)
+                SELECT source_plate_id, target_plate_id, 999, transfer_log_version_id,
+                       source_map_version_id, target_map_version_id, 'completed', 1,
+                       'recompute', summary_json, created_at
+                FROM chain_verifications WHERE id = ?
+                """,
+                (verification_id,),
+            )
+    finally:
+        conn.close()
+
+
+def test_schema_blocks_unknown_verification_status(client, app_env):
+    _, _, verification_id = _chain_pair(client)
+    conn = _raw(app_env / "data" / "plate.sqlite3")
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO chain_verifications
+                    (source_plate_id, target_plate_id, seq, transfer_log_version_id,
+                     source_map_version_id, target_map_version_id, status, is_active,
+                     trigger, summary_json, created_at)
+                SELECT source_plate_id, target_plate_id, 1000, transfer_log_version_id,
+                       source_map_version_id, target_map_version_id, 'bogus', 0,
+                       'recompute', summary_json, created_at
+                FROM chain_verifications WHERE id = ?
+                """,
+                (verification_id,),
+            )
+    finally:
+        conn.close()
+
+
+def test_transfer_log_versions_are_immutable_at_sql_level(client, app_env):
+    _, _, verification_id = _chain_pair(client)
+    conn = _raw(app_env / "data" / "plate.sqlite3")
+    try:
+        log_id = conn.execute(
+            "SELECT transfer_log_version_id FROM chain_verifications WHERE id = ?",
+            (verification_id,),
+        ).fetchone()[0]
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE transfer_log_versions SET operations_json = '[]' WHERE id = ?",
+                (log_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("DELETE FROM transfer_log_versions WHERE id = ?", (log_id,))
+    finally:
+        conn.close()

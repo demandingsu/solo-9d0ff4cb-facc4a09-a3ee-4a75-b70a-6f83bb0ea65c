@@ -1,6 +1,42 @@
 {% extends "base.html" %}
 {% block title %}板列表 · 吸光度发布系统{% endblock %}
 {% block content %}
+<div class="page-head">
+  <div>
+    <h1>实验室数据追溯</h1>
+    <p class="muted">读板孔液从哪里来？先按孔位图与读数发布整板结果，再用转移日志核对上样链。</p>
+  </div>
+</div>
+
+<section class="panel">
+  <h2>上样链核对</h2>
+  <p class="muted">选择源板与待核板，上传机器人转移日志，还原待核板各样本孔的原始样本编号，并对照登记编号列出路径、错位、缺失与混样。</p>
+  {% if verifications %}
+  <table class="grid">
+    <thead><tr><th>待核板</th><th>源板</th><th>状态</th><th>结论</th><th></th></tr></thead>
+    <tbody>
+    {% for v in verifications %}
+      <tr>
+        <td>{{ v.target_plate.name }}</td>
+        <td>{{ v.source_plate.name }}</td>
+        <td>
+          {% if v.status == "completed" %}<span class="badge ok">可信</span>
+          {% elif v.status == "stale" %}<span class="badge warn">已过期</span>
+          {% elif v.status == "superseded" %}<span class="badge muted">已被替换</span>
+          {% else %}<span class="badge fail">失败·不可信</span>{% endif %}
+        </td>
+        <td>{{ v.summary.matched if v.summary else 0 }} 一致 / {{ v.summary.mismatched if v.summary else 0 }} 错位 / {{ v.summary.missing if v.summary else 0 }} 缺失 / {{ v.summary.mixed if v.summary else 0 }} 混样</td>
+        <td><a href="/chains/{{ v.id }}">查看</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">还没有核对记录。</p>
+  {% endif %}
+  <p><a href="/chains">全部核对</a> · <a href="/chains/new">新建核对 →</a></p>
+</section>
+
 <section class="panel">
   <h1>板</h1>
   {% if plates %}

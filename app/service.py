@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import config, db, parsing, qc
+from . import chain_service, config, db, parsing, qc
 
 STATUS_PUBLISHED = "published"
 STATUS_STALE = "stale"
@@ -352,6 +352,10 @@ def ingest(
                 )
                 new_map_label = seq
                 stale_reasons.append(f"孔位图已更新至 v{seq}")
+                # Chain verifications pin the map version of every plate they
+                # touched (source, target and intermediates); a correction to
+                # any of them makes the previous conclusion stale.
+                chain_service.mark_plate_map_changed(conn, plate_id, seq, now)
 
             if readings_parsed is not None and readings_data is not None:
                 filename = _safe_original_name(readings_filename)

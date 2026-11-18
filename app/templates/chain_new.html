@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}新建上样链核对 · 吸光度发布系统{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/chains">← 上样链核对</a></p>
+<h1>新建上样链核对</h1>
+
+<section class="panel">
+  <p class="muted">
+    需要源板、待核板以及日志中出现的任何中间板都已上传孔位图（不必上传读数）。
+    源板的样本孔被当作追溯起点；待核板与中间板的样本孔从空孔开始，只能由日志中的转移获得来源。
+  </p>
+  <form method="post" action="/chains/new" enctype="multipart/form-data" class="stack">
+    <label>源板（登记样本编号的板）
+      <select name="source_plate_id" required>
+        <option value="">请选择</option>
+        {% for plate in plates_with_map %}
+        <option value="{{ plate.id }}" {% if form_source == plate.id %}selected{% endif %}>{{ plate.name }}（孔位图 {{ plate.map_version_count }} 版）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>待核板（要还原来源的板）
+      <select name="target_plate_id" required>
+        <option value="">请选择</option>
+        {% for plate in plates_with_map %}
+        <option value="{{ plate.id }}" {% if form_target == plate.id %}selected{% endif %}>{{ plate.name }}（孔位图 {{ plate.map_version_count }} 版）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>转移日志 CSV/TSV
+      <input type="file" name="log_file" required accept=".csv,.tsv,.txt,text/csv,text/plain">
+    </label>
+    <label>备注（可选）
+      <input type="text" name="note" maxlength="500" placeholder="例如 2026-11-18 机器人运行 3">
+    </label>
+    <button type="submit">上传并核对</button>
+  </form>
+  <p class="muted">表头需包含 operation、source_plate、source_well、target_plate、target_well
+    （也接受中文：操作序号、源板、源板孔位、目标板、目标板孔位）。</p>
+</section>
+
+<section class="panel">
+  <h2>日志语义</h2>
+  <ul class="checks">
+    <li class="ok"><span class="mark">1</span> 按 operation 从小到大执行，重复序号直接拒绝整份日志。</li>
+    <li class="ok"><span class="mark">2</span> 每次转移读取源孔<b>当时</b>已有内容；事后向中间孔补加样本，不会改变此前已转出的来源。</li>
+    <li class="ok"><span class="mark">3</span> 一个孔混入不同样本后，该孔后续转出的所有下游孔都标为混样。</li>
+    <li class="fail"><span class="mark">4</span> 无效孔位、空孔取源、向空白/对照孔加样会使整次核对失败，不产出可信结论。</li>
+    <li class="ok"><span class="mark">5</span> 任一参与板的孔位图更正或转移日志替换后，此前核对立即过期；重算成功后才发布新结论，失败时过期旧版仍可查看。</li>
+  </ul>
+</section>
+{% endblock %}

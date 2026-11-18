@@ -1,0 +1,6 @@
+operation,source_plate,source_well,target_plate,target_well
+1,源板,A1,中间板,A1
+2,源板,A2,中间板,B1
+3,中间板,A1,待核板,A1
+4,中间板,B1,待核板,A2
+5,源板,A3,待核板,A3

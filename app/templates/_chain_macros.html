@@ -1,0 +1,13 @@
+{% macro status_badge(v) %}
+  {% if v.status == "completed" %}<span class="badge ok">可信</span>
+  {% elif v.status == "stale" %}<span class="badge warn">已过期</span>
+  {% elif v.status == "superseded" %}<span class="badge muted">已被替换</span>
+  {% else %}<span class="badge fail">失败·不可信</span>{% endif %}
+{% endmacro %}
+
+{% macro summary_line(v) %}
+  {% set s = v.summary %}
+  {% if s %}
+    复孔 {{ s.target_sample_wells }} · 一致 {{ s.matched }} · 错位 {{ s.mismatched }} · 缺失 {{ s.missing }} · 混样 {{ s.mixed }}
+  {% else %}—{% endif %}
+{% endmacro %}

@@ -48,6 +48,55 @@
 </section>
 
 <section class="panel">
+  <h2>上样链核对</h2>
+  {% if verifications %}
+  <table class="grid">
+    <thead><tr><th>本板角色</th><th>源板</th><th>待核板</th><th>状态</th><th>结论</th><th>绑定输入</th><th></th></tr></thead>
+    <tbody>
+    {% for v in verifications %}
+      <tr class="{% if v.status == 'failed' %}row-failed{% endif %}">
+        <td>{{ {"source": "源板", "target": "待核板", "intermediate": "中间板"}[v.this_plate_role] }}</td>
+        <td><a href="/plates/{{ v.source_plate.id }}">{{ v.source_plate.name }}</a></td>
+        <td><a href="/plates/{{ v.target_plate.id }}">{{ v.target_plate.name }}</a></td>
+        <td>
+          {% if v.status == "completed" %}<span class="badge ok">可信</span>
+          {% elif v.status == "stale" %}<span class="badge warn">已过期</span>
+          {% elif v.status == "superseded" %}<span class="badge muted">已被替换</span>
+          {% else %}<span class="badge fail">失败·不可信</span>{% endif %}
+          {% if not v.active %}<div class="muted">本对板无有效结果</div>{% endif %}
+        </td>
+        <td>
+          {% set s = v.summary %}
+          {% if s %}一致 {{ s.matched }} · 错位 {{ s.mismatched }} · 缺失 {{ s.missing }} · 混样 {{ s.mixed }}{% else %}—{% endif %}
+        </td>
+        <td class="muted">
+          日志 v{{ v.log.seq if v.log else "?" }}（{{ v.log.original_filename if v.log else "?" }}）
+          · 本板孔位图 v{{ v.pinned_map_seq }}
+          {% if not v.inputs_are_latest %}<div class="warning-text">输入已变更，结果过期</div>{% endif %}
+        </td>
+        <td><a href="/chains/{{ v.id }}">查看</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">本板还没有参与过上样链核对。</p>
+  {% endif %}
+  <details class="muted" style="margin-top:0.75rem">
+    <summary>在本板上传转移日志（选择源板与待核板）</summary>
+    <form method="post" action="/plates/{{ snapshot.plate.id }}/chains" enctype="multipart/form-data" class="stack" style="margin-top:0.6rem">
+      <label>源板 id <input type="text" name="source_plate_id" required placeholder="例如 1"></label>
+      <label>待核板 id <input type="text" name="target_plate_id" required value="{{ snapshot.plate.id }}"></label>
+      <label>转移日志 CSV/TSV <input type="file" name="log_file" required accept=".csv,.tsv,.txt,text/csv,text/plain"></label>
+      <label>备注（可选） <input type="text" name="note" maxlength="500"></label>
+      <button type="submit">上传并核对</button>
+    </form>
+    <p>更推荐在 <a href="/chains/new">上样链核对页</a> 按板名选择。</p>
+  </details>
+  <p><a href="/chains/new">新建上样链核对（选择源板/待核板并上传转移日志）→</a></p>
+</section>
+
+<section class="panel">
   <h2>版本历史</h2>
   {% if snapshot.publications %}
   <table class="grid">
@@ -78,8 +127,7 @@
 
 <section class="panel two-col">
   <div>
-    <h2>孔位图版本</h2>
-    {% if snapshot.map_versions %}
+    <h2>孔位图版本</h2>    {% if snapshot.map_versions %}
     <ul class="version-list">
       {% for v in snapshot.map_versions %}
       <li>
